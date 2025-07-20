@@ -1,4 +1,8 @@
 import React, { useState } from 'react';
+import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+import { apiClient } from '@/lib/api';
+import { useAuth } from '@/hooks/useAuth';
+import { toast } from '@/hooks/use-toast';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
@@ -8,47 +12,25 @@ import { Link } from 'react-router-dom';
 
 const Profile = () => {
   const [activeTab, setActiveTab] = useState('orders');
+  const { user, logout, updateProfile } = useAuth();
+  const queryClient = useQueryClient();
 
-  // Мокданные для демонстрации
-  const user = {
-    name: 'Иван Петров',
-    email: 'ivan.petrov@example.com',
-    phone: '+7 (495) 123-45-67',
-    company: 'ООО "СтройТех"',
-    totalOrders: 15,
-    totalSpent: 245000,
-    memberSince: '2023-01-15'
-  };
+  // Загружаем заказы пользователя
+  const { data: ordersResponse, isLoading: ordersLoading } = useQuery({
+    queryKey: ['user-orders'],
+    queryFn: () => apiClient.getOrders({ page: 1, limit: 20 }),
+    enabled: !!user,
+  });
 
-  const orders = [
-    {
-      id: 'ORD-001',
-      date: '2024-07-15',
-      status: 'active',
-      items: ['Перфоратор Bosch', 'Болгарка Makita'],
-      total: 15000,
-      period: '3 дня',
-      returnDate: '2024-07-18'
-    },
-    {
-      id: 'ORD-002',
-      date: '2024-07-10',
-      status: 'completed',
-      items: ['Шуруповерт DeWalt', 'Лобзик Festool'],
-      total: 12000,
-      period: '5 дней',
-      returnDate: '2024-07-15'
-    },
-    {
-      id: 'ORD-003',
-      date: '2024-07-05',
-      status: 'overdue',
-      items: ['Пила циркулярная'],
-      total: 8000,
-      period: '2 дня',
-      returnDate: '2024-07-07'
-    }
-  ];
+  // Загружаем бронирования пользователя
+  const { data: bookingsResponse } = useQuery({
+    queryKey: ['user-bookings'],
+    queryFn: () => apiClient.getUserBookings(),
+    enabled: !!user,
+  });
+
+  const orders = ordersResponse?.data?.orders || [];
+  const bookings = bookingsResponse?.data || [];
 
   const favorites = [
     {
@@ -69,11 +51,31 @@ const Profile = () => {
     }
   ];
 
+  if (!user) {
+    return (
+      <div className="min-h-screen bg-gradient-to-br from-slate-50 to-slate-100 flex items-center justify-center">
+        <Card className="w-full max-w-md">
+          <CardContent className="p-6 text-center">
+            <Icon name="User" className="h-16 w-16 text-gray-400 mx-auto mb-4" />
+            <h2 className="text-xl font-semibold mb-2">Вход в систему</h2>
+            <p className="text-gray-600 mb-4">Войдите в свой аккаунт для доступа к профилю</p>
+            <Button onClick={() => window.location.href = '/'}>
+              Войти
+            </Button>
+          </CardContent>
+        </Card>
+      </div>
+    );
+  }
+
   const getStatusColor = (status: string) => {
     switch (status) {
       case 'active': return 'bg-green-500';
       case 'completed': return 'bg-blue-500';
       case 'overdue': return 'bg-red-500';
+      case 'pending': return 'bg-yellow-500';
+      case 'confirmed': return 'bg-blue-500';
+      case 'cancelled': return 'bg-gray-500';
       default: return 'bg-gray-500';
     }
   };
@@ -83,6 +85,9 @@ const Profile = () => {
       case 'active': return 'Активный';
       case 'completed': return 'Завершен';
       case 'overdue': return 'Просрочен';
+      case 'pending': return 'Ожидает';
+      case 'confirmed': return 'Подтвержден';
+      case 'cancelled': return 'Отменен';
       default: return 'Неизвестно';
     }
   };
@@ -94,10 +99,10 @@ const Profile = () => {
         <div className="flex items-center justify-between mb-8">
           <div className="flex items-center space-x-4">
             <div className="w-16 h-16 bg-blue-600 rounded-full flex items-center justify-center text-white text-2xl font-bold">
-              {user.name.split(' ').map(n => n[0]).join('')}
+              {user.firstName[0]}{user.lastName[0]}
             </div>
             <div>
-              <h1 className="text-3xl font-bold text-gray-900">{user.name}</h1>
+              <h1 className="text-3xl font-bold text-gray-900">{user.firstName} {user.lastName}</h1>
               <p className="text-gray-600">{user.email}</p>
             </div>
           </div>
@@ -116,7 +121,7 @@ const Profile = () => {
               <div className="flex items-center justify-between">
                 <div>
                   <p className="text-sm font-medium text-gray-600">Всего заказов</p>
-                  <p className="text-3xl font-bold text-gray-900">{user.totalOrders}</p>
+                  <p className="text-3xl font-bold text-gray-900">{user.stats.totalOrders}</p>
                 </div>
                 <Icon name="Package" className="h-8 w-8 text-blue-600" />
               </div>
@@ -128,7 +133,7 @@ const Profile = () => {
               <div className="flex items-center justify-between">
                 <div>
                   <p className="text-sm font-medium text-gray-600">Потрачено</p>
-                  <p className="text-3xl font-bold text-gray-900">{user.totalSpent.toLocaleString()} ₽</p>
+                  <p className="text-3xl font-bold text-gray-900">{user.stats.totalSpent.toLocaleString()} ₽</p>
                 </div>
                 <Icon name="CreditCard" className="h-8 w-8 text-green-600" />
               </div>
@@ -141,7 +146,7 @@ const Profile = () => {
                 <div>
                   <p className="text-sm font-medium text-gray-600">Клиент с</p>
                   <p className="text-3xl font-bold text-gray-900">
-                    {new Date(user.memberSince).getFullYear()}
+                    {new Date(user.stats.memberSince).getFullYear()}
                   </p>
                 </div>
                 <Icon name="Calendar" className="h-8 w-8 text-purple-600" />
@@ -178,17 +183,29 @@ const Profile = () => {
                 <CardTitle>Мои заказы</CardTitle>
               </CardHeader>
               <CardContent>
+                {ordersLoading ? (
+                  <div className="text-center py-8">
+                    <Icon name="Loader2" className="h-6 w-6 animate-spin mx-auto" />
+                  </div>
+                ) : orders.length === 0 ? (
+                  <div className="text-center py-8">
+                    <Icon name="Package" className="h-16 w-16 text-gray-400 mx-auto mb-4" />
+                    <p className="text-gray-600">У вас пока нет заказов</p>
+                  </div>
+                ) : (
                 <div className="space-y-4">
                   {orders.map((order) => (
-                    <div key={order.id} className="border rounded-lg p-4 hover:bg-gray-50 transition-colors">
+                    <div key={order._id} className="border rounded-lg p-4 hover:bg-gray-50 transition-colors">
                       <div className="flex items-center justify-between mb-2">
                         <div className="flex items-center space-x-3">
-                          <span className="font-semibold">#{order.id}</span>
+                          <span className="font-semibold">#{order.orderNumber}</span>
                           <Badge className={getStatusColor(order.status)}>
                             {getStatusText(order.status)}
                           </Badge>
                         </div>
-                        <span className="text-sm text-gray-500">{order.date}</span>
+                        <span className="text-sm text-gray-500">
+                          {new Date(order.createdAt).toLocaleDateString('ru-RU')}
+                        </span>
                       </div>
                       
                       <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
@@ -196,15 +213,17 @@ const Profile = () => {
                           <p className="text-sm font-medium text-gray-600 mb-1">Инструменты</p>
                           <ul className="text-sm text-gray-900">
                             {order.items.map((item, index) => (
-                              <li key={index}>• {item}</li>
+                              <li key={index}>• {item.toolName}</li>
                             ))}
                           </ul>
                         </div>
                         
                         <div>
                           <p className="text-sm font-medium text-gray-600 mb-1">Период аренды</p>
-                          <p className="text-sm text-gray-900">{order.period}</p>
-                          <p className="text-sm text-gray-500">до {order.returnDate}</p>
+                          <p className="text-sm text-gray-900">{order.totalDays} дней</p>
+                          <p className="text-sm text-gray-500">
+                            {new Date(order.startDate).toLocaleDateString('ru-RU')} - {new Date(order.endDate).toLocaleDateString('ru-RU')}
+                          </p>
                         </div>
                         
                         <div className="flex items-center justify-between">
@@ -221,6 +240,7 @@ const Profile = () => {
                     </div>
                   ))}
                 </div>
+                )}
               </CardContent>
             </Card>
           </TabsContent>
@@ -279,7 +299,7 @@ const Profile = () => {
                 <CardContent className="space-y-4">
                   <div>
                     <label className="text-sm font-medium text-gray-600">Имя</label>
-                    <p className="text-gray-900">{user.name}</p>
+                    <p className="text-gray-900">{user.firstName} {user.lastName}</p>
                   </div>
                   <div>
                     <label className="text-sm font-medium text-gray-600">Email</label>
@@ -291,7 +311,7 @@ const Profile = () => {
                   </div>
                   <div>
                     <label className="text-sm font-medium text-gray-600">Компания</label>
-                    <p className="text-gray-900">{user.company}</p>
+                    <p className="text-gray-900">{user.company || 'Не указана'}</p>
                   </div>
                   <Button className="w-full">
                     <Icon name="Edit" className="h-4 w-4 mr-2" />

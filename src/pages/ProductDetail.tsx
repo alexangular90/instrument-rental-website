@@ -109,7 +109,7 @@ export default function ProductDetail() {
     
     toast({
       title: 'Добавлено в корзину',
-      description: `${toolData.name} добавлен в корзину на ${rentalDays} дней`,
+      description: \`${toolData.name} добавлен в корзину на ${rentalDays} дней`,
     });
   };
 
@@ -180,13 +180,13 @@ export default function ProductDetail() {
                   <button
                     key={index}
                     onClick={() => setSelectedImage(index)}
-                    className={`w-20 h-20 rounded-lg overflow-hidden border-2 ${
+                    className={\`w-20 h-20 rounded-lg overflow-hidden border-2 ${
                       selectedImage === index ? 'border-blue-500' : 'border-gray-200'
                     }`}
                   >
                     <img 
                       src={image} 
-                      alt={`${toolData.name} ${index + 1}`}
+                      alt={\`${toolData.name} ${index + 1}`}
                       className="w-full h-full object-cover"
                     />
                   </button>
@@ -209,7 +209,7 @@ export default function ProductDetail() {
                       <Icon 
                         key={i} 
                         name="Star" 
-                        className={`h-4 w-4 ${
+                        className={\`h-4 w-4 ${
                           i < Math.floor(rating.rating) 
                             ? 'text-yellow-400 fill-current' 
                             : 'text-gray-300'
