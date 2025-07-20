@@ -1,4 +1,9 @@
 import { useState } from 'react';
+import { useParams } from 'react-router-dom';
+import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+import { apiClient } from '@/lib/api';
+import { useCart } from '@/contexts/CartContext';
+import { toast } from '@/hooks/use-toast';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
@@ -15,25 +20,6 @@ import Icon from '@/components/ui/icon';
 import { format, addDays } from 'date-fns';
 import { ru } from 'date-fns/locale';
 
-// Данные инструмента (обычно получаются из API)
-const toolData = {
-  id: 1,
-  name: 'Перфоратор Bosch GSH 16-28',
-  brand: 'Bosch',
-  model: 'GSH 16-28',
-  category: 'Электроинструмент',
-  subcategory: 'Перфораторы',
-  price: 1200,
-  images: [
-    '/img/5e130715-b755-4ab5-82af-c9e448995766.jpg',
-    '/img/cc0687bd-1892-4c49-8820-2d326de6668b.jpg',
-    '/img/a1f08a16-886e-4eb0-836e-611ef0c78857.jpg'
-  ],
-  available: true,
-  rating: 4.8,
-  reviews: 124,
-  description: 'Профессиональный перфоратор Bosch GSH 16-28 предназначен для интенсивных работ по сверлению и долблению в бетоне, кирпиче и природном камне. Оснащен системой SDS-Max для быстрой смены оснастки.',
-  fullDescription: `Перфоратор Bosch GSH 16-28 - это мощный профессиональный инструмент, созданный для самых сложных задач в строительстве и ремонте. Благодаря высокой мощности 1750 Вт и энергии удара 41 Дж, он легко справляется с бетоном, кирпичом и другими твёрдыми материалами.
 
 Особенности:
 - Система SDS-Max для быстрой смены оснастки без дополнительных инструментов
@@ -52,91 +38,78 @@ const toolData = {
 - Вес: 11,1 кг
 - Уровень шума: 107 дБ(A)
 - Уровень вибрации: 12 м/с²`,
-  specifications: {
-    power: '1750W',
-    weight: '11.1кг',
-    voltage: '230V',
-    chuckType: 'SDS-Max',
-    maxDrillDiameter: '50мм',
-    impactEnergy: '41J',
-    impactRate: '1400-2840 уд/мин',
-    noiseLevel: '107 дБ(A)',
-    vibrationLevel: '12 м/с²'
-  },
-  features: [
-    'SDS-Max патрон',
-    'Антивибрационная система AVT',
-    'Регулировка оборотов',
-    'Светодиодная подсветка',
-    'Автоотключение при заклинивании',
-    'Эргономичная рукоятка',
-    'Кейс для хранения'
-  ],
-  included: [
-    'Перфоратор Bosch GSH 16-28',
-    'Дополнительная рукоятка',
-    'Ограничитель глубины',
-    'Смазка для патрона',
-    'Пластиковый кейс',
-    'Инструкция по эксплуатации'
-  ],
-  inStock: 5,
-  rentalPeriods: [
-    { days: 1, price: 1200, discount: 0 },
-    { days: 3, price: 3200, discount: 11 },
-    { days: 7, price: 7000, discount: 17 },
-    { days: 14, price: 12600, discount: 25 },
-    { days: 30, price: 24000, discount: 33 }
-  ]
-};
-
-const reviews = [
-  {
-    id: 1,
-    user: 'Алексей Петров',
-    rating: 5,
-    date: '2024-01-15',
-    text: 'Отличный перфоратор! Мощный, надёжный. Пробивает бетон как масло. Антивибрационная система действительно работает - руки не устают даже после долгой работы.',
-    helpful: 12
-  },
-  {
-    id: 2,
-    user: 'Марина Сидорова',
-    rating: 5,
-    date: '2024-01-10',
-    text: 'Арендовала для ремонта квартиры. Очень довольна качеством и сервисом. Инструмент в отличном состоянии, работает тихо для своей мощности.',
-    helpful: 8
-  },
-  {
-    id: 3,
-    user: 'Дмитрий Иванов',
-    rating: 4,
-    date: '2024-01-05',
-    text: 'Хороший инструмент для профессиональных задач. Единственный минус - тяжеловат, но это компенсируется мощностью и качеством работы.',
-    helpful: 5
-  }
-];
-
 export default function ProductDetail() {
+  const { id } = useParams<{ id: string }>();
+  const { addToCart } = useCart();
+  const queryClient = useQueryClient();
+  
   const [selectedImage, setSelectedImage] = useState(0);
   const [startDate, setStartDate] = useState<Date>();
   const [endDate, setEndDate] = useState<Date>();
   const [rentalDays, setRentalDays] = useState(1);
-  const [showReviewForm, setShowReviewForm] = useState(false);
   const [quantity, setQuantity] = useState(1);
 
-  const selectedPeriod = toolData.rentalPeriods.find(p => p.days === rentalDays) || toolData.rentalPeriods[0];
+  // Загружаем данные инструмента
+  const { data: toolResponse, isLoading: toolLoading } = useQuery({
+    queryKey: ['tool', id],
+    queryFn: () => apiClient.getTool(id!),
+    enabled: !!id,
+  });
+
+  // Загружаем отзывы
+  const { data: reviewsResponse, isLoading: reviewsLoading } = useQuery({
+    queryKey: ['tool-reviews', id],
+    queryFn: () => apiClient.getToolReviews(id!, { page: 1, limit: 10 }),
+    enabled: !!id,
+  });
+
+  const toolData = toolResponse?.data;
+  const reviewsData = reviewsResponse?.data;
+  const reviews = reviewsData?.reviews || [];
+  const rating = reviewsData?.rating || { rating: 0, count: 0 };
+
+  // Создаем периоды аренды на основе цены инструмента
+  const rentalPeriods = toolData ? [
+    { days: 1, price: toolData.price, discount: 0 },
+    { days: 3, price: toolData.price * 3 * 0.9, discount: 10 },
+    { days: 7, price: toolData.price * 7 * 0.85, discount: 15 },
+    { days: 14, price: toolData.price * 14 * 0.8, discount: 20 },
+    { days: 30, price: toolData.price * 30 * 0.7, discount: 30 }
+  ] : [];
+
+  if (!id) {
+    return <div>Инструмент не найден</div>;
+  }
+
+  if (toolLoading) {
+    return (
+      <div className="min-h-screen bg-gray-50 flex items-center justify-center">
+        <Icon name="Loader2" className="h-8 w-8 animate-spin" />
+      </div>
+    );
+  }
+
+  if (!toolData) {
+    return <div>Инструмент не найден</div>;
+  }
+
+  const selectedPeriod = rentalPeriods.find(p => p.days === rentalDays) || rentalPeriods[0];
   const totalPrice = selectedPeriod.price * quantity;
   const savings = (toolData.price * rentalDays * quantity) - totalPrice;
 
   const handleAddToCart = () => {
-    console.log('Add to cart:', {
-      tool: toolData.id,
-      startDate,
-      endDate,
-      days: rentalDays,
-      quantity,
-      price: totalPrice
+    addToCart({
+      id: toolData._id,
+      name: toolData.name,
+      price: toolData.price,
+      image: toolData.images[0] || '/img/5e130715-b755-4ab5-82af-c9e448995766.jpg',
+      category: toolData.category,
+      duration: rentalDays
+    });
+    
+    toast({
+      title: 'Добавлено в корзину',
+      description: `${toolData.name} добавлен в корзину на ${rentalDays} дней`,
     });
   };
 
@@ -193,7 +166,7 @@ export default function ProductDetail() {
                   <Badge variant="outline" className="bg-white">
                     {toolData.subcategory}
                   </Badge>
-                  {toolData.available && (
+                  {toolData.status === 'available' && toolData.inStock > 0 && (
                     <Badge className="bg-green-100 text-green-800">
                       В наличии
                     </Badge>
@@ -227,7 +200,7 @@ export default function ProductDetail() {
             {/* Product Info */}
             <div>
               <h1 className="text-2xl font-bold text-gray-900 mb-2">{toolData.name}</h1>
-              <p className="text-gray-600 mb-4">{toolData.brand} · {toolData.model}</p>
+              <p className="text-gray-600 mb-4">{toolData.brand} · {toolData.model || ''}</p>
               
               <div className="flex items-center space-x-4 mb-4">
                 <div className="flex items-center space-x-1">
@@ -237,16 +210,16 @@ export default function ProductDetail() {
                         key={i} 
                         name="Star" 
                         className={`h-4 w-4 ${
-                          i < Math.floor(toolData.rating) 
+                          i < Math.floor(rating.rating) 
                             ? 'text-yellow-400 fill-current' 
                             : 'text-gray-300'
                         }`}
                       />
                     ))}
                   </div>
-                  <span className="text-sm font-medium">{toolData.rating}</span>
+                  <span className="text-sm font-medium">{rating.rating}</span>
                 </div>
-                <span className="text-sm text-gray-600">({toolData.reviews} отзывов)</span>
+                <span className="text-sm text-gray-600">({rating.count} отзывов)</span>
               </div>
 
               <p className="text-gray-700 mb-6">{toolData.description}</p>
@@ -274,7 +247,7 @@ export default function ProductDetail() {
                     Период аренды
                   </label>
                   <div className="grid grid-cols-3 gap-2">
-                    {toolData.rentalPeriods.map((period) => (
+                    {rentalPeriods.map((period) => (
                       <button
                         key={period.days}
                         onClick={() => setRentalDays(period.days)}
@@ -354,7 +327,7 @@ export default function ProductDetail() {
                     <Button
                       variant="outline"
                       size="sm"
-                      onClick={() => setQuantity(Math.min(toolData.inStock, quantity + 1))}
+                      onClick={() => setQuantity(Math.min(toolData.totalStock, quantity + 1))}
                       disabled={quantity >= toolData.inStock}
                     >
                       <Icon name="Plus" className="h-4 w-4" />
@@ -394,7 +367,7 @@ export default function ProductDetail() {
                   <Button 
                     className="w-full bg-blue-600 hover:bg-blue-700"
                     onClick={handleAddToCart}
-                    disabled={!startDate || !toolData.available}
+                    disabled={!startDate || toolData.status !== 'available' || toolData.inStock === 0}
                   >
                     <Icon name="ShoppingCart" className="h-4 w-4 mr-2" />
                     Добавить в корзину
@@ -425,7 +398,7 @@ export default function ProductDetail() {
               <TabsTrigger value="description">Описание</TabsTrigger>
               <TabsTrigger value="specifications">Характеристики</TabsTrigger>
               <TabsTrigger value="included">Комплектация</TabsTrigger>
-              <TabsTrigger value="reviews">Отзывы ({toolData.reviews})</TabsTrigger>
+              <TabsTrigger value="reviews">Отзывы ({rating.count})</TabsTrigger>
             </TabsList>
 
             <TabsContent value="description" className="mt-6">
@@ -480,7 +453,7 @@ export default function ProductDetail() {
                     <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
                       <div className="text-center">
                         <div className="text-4xl font-bold text-gray-900 mb-2">
-                          {toolData.rating}
+                          {rating.rating}
                         </div>
                         <div className="flex justify-center mb-2">
                           {[...Array(5)].map((_, i) => (
@@ -488,7 +461,7 @@ export default function ProductDetail() {
                               key={i} 
                               name="Star" 
                               className={`h-5 w-5 ${
-                                i < Math.floor(toolData.rating) 
+                                i < Math.floor(rating.rating) 
                                   ? 'text-yellow-400 fill-current' 
                                   : 'text-gray-300'
                               }`}
@@ -496,7 +469,7 @@ export default function ProductDetail() {
                           ))}
                         </div>
                         <p className="text-gray-600">
-                          Основано на {toolData.reviews} отзывах
+                          Основано на {rating.count} отзывах
                         </p>
                       </div>
                       <div className="space-y-2">
@@ -517,19 +490,28 @@ export default function ProductDetail() {
 
                 {/* Individual Reviews */}
                 <div className="space-y-4">
-                  {reviews.map((review) => (
-                    <Card key={review.id}>
+                  {reviewsLoading ? (
+                    <div className="text-center py-8">
+                      <Icon name="Loader2" className="h-6 w-6 animate-spin mx-auto" />
+                    </div>
+                  ) : reviews.length === 0 ? (
+                    <div className="text-center py-8">
+                      <p className="text-gray-600">Пока нет отзывов</p>
+                    </div>
+                  ) : (
+                    reviews.map((review) => (
+                    <Card key={review._id}>
                       <CardContent className="p-6">
                         <div className="flex items-start space-x-4">
                           <Avatar>
                             <AvatarFallback>
-                              {review.user.split(' ').map(n => n[0]).join('')}
+                              {review.customerId.slice(0, 2).toUpperCase()}
                             </AvatarFallback>
                           </Avatar>
                           <div className="flex-1">
                             <div className="flex items-center justify-between mb-2">
                               <div>
-                                <h4 className="font-semibold">{review.user}</h4>
+                                <h4 className="font-semibold">{review.title}</h4>
                                 <div className="flex items-center space-x-2">
                                   <div className="flex">
                                     {[...Array(5)].map((_, i) => (
@@ -545,16 +527,16 @@ export default function ProductDetail() {
                                     ))}
                                   </div>
                                   <span className="text-sm text-gray-600">
-                                    {format(new Date(review.date), 'dd MMMM yyyy', { locale: ru })}
+                                    {format(new Date(review.createdAt), 'dd MMMM yyyy', { locale: ru })}
                                   </span>
                                 </div>
                               </div>
                             </div>
-                            <p className="text-gray-700 mb-3">{review.text}</p>
+                            <p className="text-gray-700 mb-3">{review.comment}</p>
                             <div className="flex items-center space-x-4">
                               <Button variant="ghost" size="sm">
                                 <Icon name="ThumbsUp" className="h-4 w-4 mr-1" />
-                                Полезно ({review.helpful})
+                                Полезно ({review.helpfulVotes})
                               </Button>
                               <Button variant="ghost" size="sm">
                                 <Icon name="Flag" className="h-4 w-4 mr-1" />
@@ -566,6 +548,7 @@ export default function ProductDetail() {
                       </CardContent>
                     </Card>
                   ))}
+                  )}
                 </div>
 
                 {/* Add Review */}

@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import { useQuery } from '@tanstack/react-query';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
@@ -9,6 +10,8 @@ import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover
 import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from '@/components/ui/accordion';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { useCart } from '@/contexts/CartContext';
+import { useAuth } from '@/hooks/useAuth';
+import { apiClient } from '@/lib/api';
 import { Link } from 'react-router-dom';
 import Icon from '@/components/ui/icon';
 import { format } from 'date-fns';
@@ -18,52 +21,15 @@ export default function Index() {
   const [selectedDate, setSelectedDate] = useState<Date>();
   const [searchQuery, setSearchQuery] = useState('');
   const { addToCart, getTotalItems } = useCart();
+  const { user, logout } = useAuth();
 
-  const tools = [
-    {
-      id: 1,
-      name: 'Перфоратор Bosch',
-      category: 'Электроинструмент',
-      price: 1200,
-      image: '/img/5e130715-b755-4ab5-82af-c9e448995766.jpg',
-      available: true,
-      rating: 4.8,
-      description: 'Профессиональный перфоратор для сверления и долбления'
-    },
-    {
-      id: 2,
-      name: 'Болгарка DeWalt',
-      category: 'Электроинструмент',
-      price: 800,
-      image: '/img/5e130715-b755-4ab5-82af-c9e448995766.jpg',
-      available: true,
-      rating: 4.9,
-      description: 'Угловая шлифовальная машина 125мм'
-    },
-    {
-      id: 3,
-      name: 'Отбойный молоток',
-      category: 'Пневмоинструмент',
-      price: 2500,
-      image: '/img/5e130715-b755-4ab5-82af-c9e448995766.jpg',
-      available: false,
-      rating: 4.7,
-      description: 'Мощный отбойный молоток для демонтажа'
-    },
-    {
-      id: 4,
-      name: 'Миксер строительный',
-      category: 'Электроинструмент',
-      price: 600,
-      image: '/img/5e130715-b755-4ab5-82af-c9e448995766.jpg',
-      available: true,
-      rating: 4.6,
-      description: 'Для перемешивания растворов и красок'
-    }
-  ];
+  // Загружаем популярные инструменты с сервера
+  const { data: toolsResponse, isLoading } = useQuery({
+    queryKey: ['popular-tools'],
+    queryFn: () => apiClient.getPopularTools(8),
+  });
 
-  const categories = ['Все', 'Электроинструмент', 'Пневмоинструмент', 'Ручной инструмент'];
-
+  const tools = toolsResponse?.data || [];
   const filteredTools = tools.filter(tool => 
     tool.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
     tool.category.toLowerCase().includes(searchQuery.toLowerCase())
@@ -102,20 +68,32 @@ export default function Index() {
                 </Button>
               </Link>
               <Link to="/profile">
-                <Button size="sm">
-                  <Icon name="User" className="h-4 w-4 mr-2" />
-                  Войти
-                </Button>
+                {user ? (
+                  <div className="flex items-center space-x-2">
+                    <span className="text-sm text-gray-600">Привет, {user.firstName}!</span>
+                    <Button size="sm" variant="outline" onClick={logout}>
+                      <Icon name="LogOut" className="h-4 w-4 mr-2" />
+                      Выйти
+                    </Button>
+                  </div>
+                ) : (
+                  <Button size="sm">
+                    <Icon name="User" className="h-4 w-4 mr-2" />
+                    Войти
+                  </Button>
+                )}
               </Link>
-              <Button 
-                variant="outline" 
-                size="sm"
-                onClick={() => window.location.href = '/admin'}
-                className="text-gray-600 hover:text-blue-600"
-              >
-                <Icon name="Settings" className="h-4 w-4 mr-2" />
-                Админ
-              </Button>
+              {user?.role === 'admin' && (
+                <Button 
+                  variant="outline" 
+                  size="sm"
+                  onClick={() => window.location.href = '/admin'}
+                  className="text-gray-600 hover:text-blue-600"
+                >
+                  <Icon name="Settings" className="h-4 w-4 mr-2" />
+                  Админ
+                </Button>
+              )}
             </div>
           </div>
         </div>
@@ -236,63 +214,78 @@ export default function Index() {
             </TabsList>
 
             <TabsContent value="Все" className="space-y-8">
-              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
-                {filteredTools.map((tool) => (
-                  <Card key={tool.id} className="hover:shadow-lg transition-shadow">
-                    <div className="relative">
-                      <img 
-                        src={tool.image} 
-                        alt={tool.name}
-                        className="w-full h-48 object-cover rounded-t-lg"
-                      />
-                      {!tool.available && (
-                        <div className="absolute top-2 right-2">
-                          <Badge variant="secondary">Занято</Badge>
+              {isLoading ? (
+                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
+                  {[...Array(8)].map((_, i) => (
+                    <Card key={i} className="animate-pulse">
+                      <div className="w-full h-48 bg-gray-200 rounded-t-lg"></div>
+                      <CardContent className="p-4">
+                        <div className="h-4 bg-gray-200 rounded mb-2"></div>
+                        <div className="h-3 bg-gray-200 rounded mb-3"></div>
+                        <div className="h-6 bg-gray-200 rounded"></div>
+                      </CardContent>
+                    </Card>
+                  ))}
+                </div>
+              ) : (
+                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
+                  {filteredTools.map((tool) => (
+                    <Card key={tool._id} className="hover:shadow-lg transition-shadow">
+                      <div className="relative">
+                        <img 
+                          src={tool.images[0] || '/img/5e130715-b755-4ab5-82af-c9e448995766.jpg'} 
+                          alt={tool.name}
+                          className="w-full h-48 object-cover rounded-t-lg"
+                        />
+                        {tool.status !== 'available' && (
+                          <div className="absolute top-2 right-2">
+                            <Badge variant="secondary">Занято</Badge>
+                          </div>
+                        )}
+                        <div className="absolute top-2 left-2">
+                          <Badge variant="outline" className="bg-white">
+                            {tool.category}
+                          </Badge>
                         </div>
-                      )}
-                      <div className="absolute top-2 left-2">
-                        <Badge variant="outline" className="bg-white">
-                          {tool.category}
-                        </Badge>
                       </div>
-                    </div>
-                    <CardContent className="p-4">
-                      <div className="flex items-center justify-between mb-2">
-                        <h3 className="font-semibold text-lg">{tool.name}</h3>
-                        <div className="flex items-center space-x-1">
-                          <Icon name="Star" className="h-4 w-4 text-yellow-400 fill-current" />
-                          <span className="text-sm text-gray-600">{tool.rating}</span>
+                      <CardContent className="p-4">
+                        <div className="flex items-center justify-between mb-2">
+                          <h3 className="font-semibold text-lg">{tool.name}</h3>
+                          <div className="flex items-center space-x-1">
+                            <Icon name="Star" className="h-4 w-4 text-yellow-400 fill-current" />
+                            <span className="text-sm text-gray-600">{tool.rating}</span>
+                          </div>
                         </div>
-                      </div>
-                      <p className="text-gray-600 text-sm mb-3">{tool.description}</p>
-                      <div className="flex items-center justify-between">
-                        <span className="text-2xl font-bold text-blue-600">
-                          {tool.price}₽<span className="text-sm text-gray-600">/день</span>
-                        </span>
-                        <Button 
-                          size="sm" 
-                          disabled={!tool.available}
-                          className="bg-blue-600 hover:bg-blue-700"
-                          onClick={() => {
-                            if (tool.available) {
-                              addToCart({
-                                id: tool.id,
-                                name: tool.name,
-                                price: tool.price,
-                                image: tool.image,
-                                category: tool.category,
-                                duration: 1
-                              });
-                            }
-                          }}
-                        >
-                          {tool.available ? 'В корзину' : 'Занято'}
-                        </Button>
-                      </div>
-                    </CardContent>
-                  </Card>
-                ))}
-              </div>
+                        <p className="text-gray-600 text-sm mb-3">{tool.description}</p>
+                        <div className="flex items-center justify-between">
+                          <span className="text-2xl font-bold text-blue-600">
+                            {tool.price}₽<span className="text-sm text-gray-600">/день</span>
+                          </span>
+                          <Button 
+                            size="sm" 
+                            disabled={tool.status !== 'available' || tool.inStock === 0}
+                            className="bg-blue-600 hover:bg-blue-700"
+                            onClick={() => {
+                              if (tool.status === 'available' && tool.inStock > 0) {
+                                addToCart({
+                                  id: tool._id,
+                                  name: tool.name,
+                                  price: tool.price,
+                                  image: tool.images[0] || '/img/5e130715-b755-4ab5-82af-c9e448995766.jpg',
+                                  category: tool.category,
+                                  duration: 1
+                                });
+                              }
+                            }}
+                          >
+                            {tool.status === 'available' && tool.inStock > 0 ? 'В корзину' : 'Занято'}
+                          </Button>
+                        </div>
+                      </CardContent>
+                    </Card>
+                  ))}
+                </div>
+              )}
             </TabsContent>
           </Tabs>
         </div>

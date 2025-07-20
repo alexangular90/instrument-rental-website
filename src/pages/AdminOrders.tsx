@@ -1,4 +1,7 @@
 import { useState } from 'react';
+import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+import { apiClient, Order } from '@/lib/api';
+import { toast } from '@/hooks/use-toast';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
@@ -11,84 +14,50 @@ import { Label } from '@/components/ui/label';
 import { Separator } from '@/components/ui/separator';
 import Icon from '@/components/ui/icon';
 
-interface Order {
-  id: string;
-  customerName: string;
-  customerPhone: string;
-  customerEmail: string;
-  tools: Array<{
-    id: number;
-    name: string;
-    price: number;
-    quantity: number;
-    days: number;
-  }>;
-  startDate: string;
-  endDate: string;
-  status: 'pending' | 'confirmed' | 'active' | 'completed' | 'cancelled';
-  totalAmount: number;
-  deposit: number;
-  notes: string;
-  createdAt: string;
-}
-
 const AdminOrdersManagement = () => {
-  const [orders, setOrders] = useState<Order[]>([
-    {
-      id: 'ORD-7842',
-      customerName: 'Алексей Петров',
-      customerPhone: '+7 (999) 123-45-67',
-      customerEmail: 'alexey@example.com',
-      tools: [
-        { id: 1, name: 'Перфоратор Bosch GSH 16-28', price: 1200, quantity: 1, days: 3 },
-        { id: 2, name: 'Болгарка DeWalt DWE402', price: 800, quantity: 1, days: 3 }
-      ],
-      startDate: '2024-07-20',
-      endDate: '2024-07-23',
-      status: 'active',
-      totalAmount: 6000,
-      deposit: 3000,
-      notes: 'Клиент опытный, все инструменты в порядке',
-      createdAt: '2024-07-18'
-    },
-    {
-      id: 'ORD-7841',
-      customerName: 'Мария Иванова',
-      customerPhone: '+7 (999) 234-56-78',
-      customerEmail: 'maria@example.com',
-      tools: [
-        { id: 5, name: 'Дрель аккумуляторная Bosch GSR 18V', price: 450, quantity: 2, days: 5 }
-      ],
-      startDate: '2024-07-15',
-      endDate: '2024-07-20',
-      status: 'completed',
-      totalAmount: 4500,
-      deposit: 2250,
-      notes: 'Постоянный клиент, возврат в срок',
-      createdAt: '2024-07-12'
-    },
-    {
-      id: 'ORD-7840',
-      customerName: 'Сергей Сидоров',
-      customerPhone: '+7 (999) 345-67-89',
-      customerEmail: 'sergey@example.com',
-      tools: [
-        { id: 3, name: 'Отбойный молоток Makita HM1317C', price: 2500, quantity: 1, days: 2 }
-      ],
-      startDate: '2024-07-22',
-      endDate: '2024-07-24',
-      status: 'confirmed',
-      totalAmount: 5000,
-      deposit: 2500,
-      notes: 'Требуется инструктаж по безопасности',
-      createdAt: '2024-07-17'
-    }
-  ]);
+  const queryClient = useQueryClient();
 
   const [searchQuery, setSearchQuery] = useState('');
   const [statusFilter, setStatusFilter] = useState('all');
   const [selectedOrder, setSelectedOrder] = useState<Order | null>(null);
   const [isDetailsOpen, setIsDetailsOpen] = useState(false);
+
+  // Загружаем заказы
+  const { data: ordersResponse, isLoading } = useQuery({
+    queryKey: ['admin-orders', statusFilter, searchQuery],
+    queryFn: () => apiClient.getOrders({
+      status: statusFilter !== 'all' ? statusFilter : undefined,
+      page: 1,
+      limit: 100
+    }),
+  });
+
+  // Загружаем статистику
+  const { data: statsResponse } = useQuery({
+    queryKey: ['order-statistics'],
+    queryFn: () => apiClient.getOrderStatistics(),
+  });
+
+  const orders = ordersResponse?.data?.orders || [];
+  const stats = statsResponse?.data || {};
+
+  // Мутация для обновления статуса заказа
+  const updateStatusMutation = useMutation({
+    mutationFn: ({ orderId, status, note }: { orderId: string; status: string; note?: string }) =>
+      apiClient.updateOrderStatus(orderId, status, note),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['admin-orders'] });
+      queryClient.invalidateQueries({ queryKey: ['order-statistics'] });
+      toast({ title: 'Статус обновлен', description: 'Статус заказа успешно изменен' });
+    },
+    onError: (error: any) => {
+      toast({ 
+        title: 'Ошибка', 
+        description: error.message || 'Не удалось обновить статус',
+        variant: 'destructive'
+      });
+    },
+  });
 
   const getStatusBadge = (status: string) => {
     const statusConfig = {
@@ -102,16 +71,15 @@ const AdminOrdersManagement = () => {
     return <Badge className={config.color}>{config.text}</Badge>;
   };
 
-  const updateOrderStatus = (orderId: string, newStatus: Order['status']) => {
-    setOrders(orders.map(order => 
-      order.id === orderId ? { ...order, status: newStatus } : order
-    ));
+  const updateOrderStatus = (orderId: string, newStatus: string) => {
+    updateStatusMutation.mutate({ orderId, status: newStatus });
   };
 
   const filteredOrders = orders.filter(order => {
-    const matchesSearch = order.id.toLowerCase().includes(searchQuery.toLowerCase()) ||
-                         order.customerName.toLowerCase().includes(searchQuery.toLowerCase()) ||
-                         order.customerPhone.includes(searchQuery);
+    const matchesSearch = order.orderNumber.toLowerCase().includes(searchQuery.toLowerCase()) ||
+                         order.customerInfo.firstName.toLowerCase().includes(searchQuery.toLowerCase()) ||
+                         order.customerInfo.lastName.toLowerCase().includes(searchQuery.toLowerCase()) ||
+                         order.customerInfo.phone.includes(searchQuery);
     
     const matchesStatus = statusFilter === 'all' || order.status === statusFilter;
     
@@ -119,11 +87,11 @@ const AdminOrdersManagement = () => {
   });
 
   const orderStats = {
-    total: orders.length,
-    pending: orders.filter(o => o.status === 'pending').length,
-    active: orders.filter(o => o.status === 'active').length,
-    completed: orders.filter(o => o.status === 'completed').length,
-    revenue: orders.reduce((sum, order) => sum + order.totalAmount, 0)
+    total: stats.total || 0,
+    pending: stats.pending || 0,
+    active: stats.active || 0,
+    completed: stats.completed || 0,
+    revenue: stats.totalRevenue || 0
   };
 
   const formatDate = (dateString: string) => {
@@ -235,6 +203,12 @@ const AdminOrdersManagement = () => {
         </CardHeader>
         <CardContent>
           <div className="rounded-md border">
+            {isLoading ? (
+              <div className="p-8 text-center">
+                <Icon name="Loader2" className="h-8 w-8 animate-spin mx-auto mb-4" />
+                <p>Загрузка заказов...</p>
+              </div>
+            ) : (
             <Table>
               <TableHeader>
                 <TableRow>
@@ -252,10 +226,10 @@ const AdminOrdersManagement = () => {
                   const daysLeft = calculateDaysLeft(order.endDate);
                   
                   return (
-                    <TableRow key={order.id}>
+                    <TableRow key={order._id}>
                       <TableCell>
                         <div>
-                          <p className="font-medium">{order.id}</p>
+                          <p className="font-medium">{order.orderNumber}</p>
                           <p className="text-sm text-gray-600">
                             {formatDate(order.createdAt)}
                           </p>
@@ -263,16 +237,16 @@ const AdminOrdersManagement = () => {
                       </TableCell>
                       <TableCell>
                         <div>
-                          <p className="font-medium">{order.customerName}</p>
-                          <p className="text-sm text-gray-600">{order.customerPhone}</p>
+                          <p className="font-medium">{order.customerInfo.firstName} {order.customerInfo.lastName}</p>
+                          <p className="text-sm text-gray-600">{order.customerInfo.phone}</p>
                         </div>
                       </TableCell>
                       <TableCell>
                         <div>
-                          <p className="font-medium">{order.tools.length} инструмент(ов)</p>
+                          <p className="font-medium">{order.items.length} инструмент(ов)</p>
                           <p className="text-sm text-gray-600">
-                            {order.tools[0]?.name}
-                            {order.tools.length > 1 && ` +${order.tools.length - 1}`}
+                            {order.items[0]?.toolName}
+                            {order.items.length > 1 && ` +${order.items.length - 1}`}
                           </p>
                         </div>
                       </TableCell>
@@ -290,7 +264,7 @@ const AdminOrdersManagement = () => {
                       </TableCell>
                       <TableCell>
                         <div>
-                          <p className="font-bold">₽{order.totalAmount.toLocaleString()}</p>
+                          <p className="font-bold">₽{order.total.toLocaleString()}</p>
                           <p className="text-sm text-gray-600">
                             Залог: ₽{order.deposit.toLocaleString()}
                           </p>
@@ -316,8 +290,9 @@ const AdminOrdersManagement = () => {
                             <Button
                               variant="outline"
                               size="sm"
-                              onClick={() => updateOrderStatus(order.id, 'confirmed')}
+                              onClick={() => updateOrderStatus(order._id, 'confirmed')}
                               className="text-blue-600"
+                              disabled={updateStatusMutation.isPending}
                             >
                               <Icon name="Check" size={14} />
                             </Button>
@@ -327,8 +302,9 @@ const AdminOrdersManagement = () => {
                             <Button
                               variant="outline"
                               size="sm"
-                              onClick={() => updateOrderStatus(order.id, 'active')}
+                              onClick={() => updateOrderStatus(order._id, 'active')}
                               className="text-green-600"
+                              disabled={updateStatusMutation.isPending}
                             >
                               <Icon name="Play" size={14} />
                             </Button>
@@ -338,8 +314,9 @@ const AdminOrdersManagement = () => {
                             <Button
                               variant="outline"
                               size="sm"
-                              onClick={() => updateOrderStatus(order.id, 'completed')}
+                              onClick={() => updateOrderStatus(order._id, 'completed')}
                               className="text-gray-600"
+                              disabled={updateStatusMutation.isPending}
                             >
                               <Icon name="Square" size={14} />
                             </Button>
@@ -351,6 +328,7 @@ const AdminOrdersManagement = () => {
                 })}
               </TableBody>
             </Table>
+            )}
           </div>
         </CardContent>
       </Card>
@@ -359,7 +337,7 @@ const AdminOrdersManagement = () => {
       <Dialog open={isDetailsOpen} onOpenChange={setIsDetailsOpen}>
         <DialogContent className="max-w-4xl">
           <DialogHeader>
-            <DialogTitle>Детали заказа {selectedOrder?.id}</DialogTitle>
+            <DialogTitle>Детали заказа {selectedOrder?.orderNumber}</DialogTitle>
             <DialogDescription>
               Полная информация о заказе и клиенте
             </DialogDescription>
@@ -376,15 +354,15 @@ const AdminOrdersManagement = () => {
                   <div className="grid grid-cols-2 gap-4">
                     <div>
                       <Label className="text-sm font-medium">Имя клиента</Label>
-                      <p className="mt-1">{selectedOrder.customerName}</p>
+                      <p className="mt-1">{selectedOrder.customerInfo.firstName} {selectedOrder.customerInfo.lastName}</p>
                     </div>
                     <div>
                       <Label className="text-sm font-medium">Телефон</Label>
-                      <p className="mt-1">{selectedOrder.customerPhone}</p>
+                      <p className="mt-1">{selectedOrder.customerInfo.phone}</p>
                     </div>
                     <div className="col-span-2">
                       <Label className="text-sm font-medium">Email</Label>
-                      <p className="mt-1">{selectedOrder.customerEmail}</p>
+                      <p className="mt-1">{selectedOrder.customerInfo.email}</p>
                     </div>
                   </div>
                 </CardContent>
@@ -418,17 +396,17 @@ const AdminOrdersManagement = () => {
                     <div>
                       <Label className="text-sm font-medium">Арендованные инструменты</Label>
                       <div className="mt-2 space-y-2">
-                        {selectedOrder.tools.map((tool, index) => (
+                        {selectedOrder.items.map((item, index) => (
                           <div key={index} className="flex items-center justify-between p-3 border rounded-lg">
                             <div className="flex-1">
-                              <p className="font-medium">{tool.name}</p>
+                              <p className="font-medium">{item.toolName}</p>
                               <p className="text-sm text-gray-600">
-                                Количество: {tool.quantity} | Дней: {tool.days}
+                                Количество: {item.quantity} | Дней: {item.days}
                               </p>
                             </div>
                             <div className="text-right">
-                              <p className="font-bold">₽{(tool.price * tool.quantity * tool.days).toLocaleString()}</p>
-                              <p className="text-sm text-gray-600">₽{tool.price}/день</p>
+                              <p className="font-bold">₽{item.total.toLocaleString()}</p>
+                              <p className="text-sm text-gray-600">₽{item.pricePerDay}/день</p>
                             </div>
                           </div>
                         ))}
@@ -442,7 +420,7 @@ const AdminOrdersManagement = () => {
                       <div>
                         <Label className="text-sm font-medium">Общая сумма</Label>
                         <p className="text-2xl font-bold text-blue-600 mt-1">
-                          ₽{selectedOrder.totalAmount.toLocaleString()}
+                          ₽{selectedOrder.total.toLocaleString()}
                         </p>
                       </div>
                       <div>

@@ -1,4 +1,7 @@
 import { useState, useMemo } from 'react';
+import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+import { apiClient, Tool } from '@/lib/api';
+import { toast } from '@/hooks/use-toast';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
@@ -13,70 +16,8 @@ import { Switch } from '@/components/ui/switch';
 import { Separator } from '@/components/ui/separator';
 import Icon from '@/components/ui/icon';
 
-interface Tool {
-  id: number;
-  name: string;
-  brand: string;
-  category: string;
-  subcategory: string;
-  price: number;
-  image: string;
-  available: boolean;
-  rating: number;
-  reviews: number;
-  description: string;
-  power: string;
-  weight: string;
-  features: string[];
-  inStock: number;
-  totalRented: number;
-  revenue: number;
-  lastRented: string;
-}
-
 const AdminToolsManagement = () => {
-  const [tools, setTools] = useState<Tool[]>([
-    {
-      id: 1,
-      name: 'Перфоратор Bosch GSH 16-28',
-      brand: 'Bosch',
-      category: 'Электроинструмент',
-      subcategory: 'Перфораторы',
-      price: 1200,
-      image: '/img/5e130715-b755-4ab5-82af-c9e448995766.jpg',
-      available: true,
-      rating: 4.8,
-      reviews: 124,
-      description: 'Профессиональный перфоратор для сверления и долбления бетона',
-      power: '1500W',
-      weight: '5.8кг',
-      features: ['SDS-Max', 'Антивибрация', 'Регулировка оборотов'],
-      inStock: 5,
-      totalRented: 89,
-      revenue: 156800,
-      lastRented: '2024-07-15'
-    },
-    {
-      id: 2,
-      name: 'Болгарка DeWalt DWE402',
-      brand: 'DeWalt',
-      category: 'Электроинструмент',
-      subcategory: 'Болгарки',
-      price: 800,
-      image: '/img/5e130715-b755-4ab5-82af-c9e448995766.jpg',
-      available: true,
-      rating: 4.9,
-      reviews: 89,
-      description: 'Угловая шлифовальная машина 125мм с защитным кожухом',
-      power: '1010W',
-      weight: '2.2кг',
-      features: ['Плавный пуск', 'Защита от перегрузки', 'Быстрая замена диска'],
-      inStock: 8,
-      totalRented: 156,
-      revenue: 234400,
-      lastRented: '2024-07-18'
-    }
-  ]);
+  const queryClient = useQueryClient();
 
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedCategory, setSelectedCategory] = useState('all');
@@ -90,14 +31,83 @@ const AdminToolsManagement = () => {
     subcategory: '',
     price: '',
     description: '',
-    power: '',
-    weight: '',
+    fullDescription: '',
     features: '',
-    inStock: ''
+    inStock: '',
+    totalStock: ''
   });
 
-  const categories = ['Электроинструмент', 'Измерительные приборы', 'Садовая техника', 'Строительное оборудование'];
+  // Загружаем инструменты
+  const { data: toolsResponse, isLoading } = useQuery({
+    queryKey: ['admin-tools', searchQuery, selectedCategory],
+    queryFn: () => apiClient.getTools({
+      search: searchQuery || undefined,
+      category: selectedCategory !== 'all' ? selectedCategory : undefined,
+      page: 1,
+      limit: 100
+    }),
+  });
+
+  // Загружаем категории
+  const { data: categoriesResponse } = useQuery({
+    queryKey: ['categories'],
+    queryFn: () => apiClient.getCategories(),
+  });
+
+  const tools = toolsResponse?.data?.tools || [];
+  const categories = categoriesResponse?.data?.map(cat => cat.name) || [];
   const brands = ['Bosch', 'DeWalt', 'Makita', 'Metabo', 'Milwaukee', 'Ryobi'];
+
+  // Мутации
+  const createToolMutation = useMutation({
+    mutationFn: (toolData: Partial<Tool>) => apiClient.createTool(toolData),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['admin-tools'] });
+      toast({ title: 'Инструмент создан', description: 'Новый инструмент успешно добавлен в каталог' });
+      setIsAddDialogOpen(false);
+      resetNewTool();
+    },
+    onError: (error: any) => {
+      toast({ 
+        title: 'Ошибка', 
+        description: error.message || 'Не удалось создать инструмент',
+        variant: 'destructive'
+      });
+    },
+  });
+
+  const updateToolMutation = useMutation({
+    mutationFn: ({ id, data }: { id: string; data: Partial<Tool> }) => 
+      apiClient.updateTool(id, data),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['admin-tools'] });
+      toast({ title: 'Инструмент обновлен', description: 'Изменения успешно сохранены' });
+      setIsEditDialogOpen(false);
+      setEditingTool(null);
+    },
+    onError: (error: any) => {
+      toast({ 
+        title: 'Ошибка', 
+        description: error.message || 'Не удалось обновить инструмент',
+        variant: 'destructive'
+      });
+    },
+  });
+
+  const deleteToolMutation = useMutation({
+    mutationFn: (id: string) => apiClient.deleteTool(id),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['admin-tools'] });
+      toast({ title: 'Инструмент удален', description: 'Инструмент успешно удален из каталога' });
+    },
+    onError: (error: any) => {
+      toast({ 
+        title: 'Ошибка', 
+        description: error.message || 'Не удалось удалить инструмент',
+        variant: 'destructive'
+      });
+    },
+  });
 
   const filteredTools = useMemo(() => {
     let filtered = tools;
@@ -117,31 +127,7 @@ const AdminToolsManagement = () => {
     return filtered;
   }, [tools, searchQuery, selectedCategory]);
 
-  const handleAddTool = () => {
-    const id = Math.max(...tools.map(t => t.id)) + 1;
-    const tool: Tool = {
-      id,
-      name: newTool.name,
-      brand: newTool.brand,
-      category: newTool.category,
-      subcategory: newTool.subcategory,
-      price: Number(newTool.price),
-      image: '/img/5e130715-b755-4ab5-82af-c9e448995766.jpg',
-      available: true,
-      rating: 0,
-      reviews: 0,
-      description: newTool.description,
-      power: newTool.power,
-      weight: newTool.weight,
-      features: newTool.features.split(',').map(f => f.trim()),
-      inStock: Number(newTool.inStock),
-      totalRented: 0,
-      revenue: 0,
-      lastRented: ''
-    };
-
-    setTools([...tools, tool]);
-    setIsAddDialogOpen(false);
+  const resetNewTool = () => {
     setNewTool({
       name: '',
       brand: '',
@@ -149,11 +135,35 @@ const AdminToolsManagement = () => {
       subcategory: '',
       price: '',
       description: '',
-      power: '',
-      weight: '',
+      fullDescription: '',
       features: '',
-      inStock: ''
+      inStock: '',
+      totalStock: ''
     });
+  };
+
+  const handleAddTool = () => {
+    const toolData = {
+      name: newTool.name,
+      brand: newTool.brand,
+      category: newTool.category,
+      subcategory: newTool.subcategory,
+      price: Number(newTool.price),
+      images: ['/img/5e130715-b755-4ab5-82af-c9e448995766.jpg'],
+      description: newTool.description,
+      fullDescription: newTool.fullDescription,
+      features: newTool.features.split(',').map(f => f.trim()),
+      inStock: Number(newTool.inStock),
+      totalStock: Number(newTool.totalStock),
+      specifications: {},
+      included: [],
+      condition: 'excellent',
+      location: 'main_warehouse',
+      status: 'available',
+      isActive: true
+    };
+
+    createToolMutation.mutate(toolData);
   };
 
   const handleEditTool = (tool: Tool) => {
@@ -164,21 +174,22 @@ const AdminToolsManagement = () => {
   const handleUpdateTool = () => {
     if (!editingTool) return;
 
-    setTools(tools.map(tool => 
-      tool.id === editingTool.id ? editingTool : tool
-    ));
-    setIsEditDialogOpen(false);
-    setEditingTool(null);
+    updateToolMutation.mutate({
+      id: editingTool._id,
+      data: editingTool
+    });
   };
 
-  const handleDeleteTool = (id: number) => {
-    setTools(tools.filter(tool => tool.id !== id));
+  const handleDeleteTool = (id: string) => {
+    deleteToolMutation.mutate(id);
   };
 
-  const toggleAvailability = (id: number) => {
-    setTools(tools.map(tool =>
-      tool.id === id ? { ...tool, available: !tool.available } : tool
-    ));
+  const toggleAvailability = (tool: Tool) => {
+    const newStatus = tool.status === 'available' ? 'maintenance' : 'available';
+    updateToolMutation.mutate({
+      id: tool._id,
+      data: { status: newStatus }
+    });
   };
 
   const getStockStatus = (stock: number) => {
@@ -275,34 +286,36 @@ const AdminToolsManagement = () => {
                 />
               </div>
               <div className="space-y-2">
-                <Label htmlFor="power">Мощность</Label>
-                <Input
-                  id="power"
-                  value={newTool.power}
-                  onChange={(e) => setNewTool({ ...newTool, power: e.target.value })}
-                  placeholder="1500W"
-                />
-              </div>
-              <div className="space-y-2">
-                <Label htmlFor="weight">Вес</Label>
-                <Input
-                  id="weight"
-                  value={newTool.weight}
-                  onChange={(e) => setNewTool({ ...newTool, weight: e.target.value })}
-                  placeholder="5.8кг"
-                />
-              </div>
-              <div className="col-span-2 space-y-2">
                 <Label htmlFor="description">Описание</Label>
                 <Textarea
                   id="description"
                   value={newTool.description}
                   onChange={(e) => setNewTool({ ...newTool, description: e.target.value })}
+                  placeholder="Краткое описание инструмента..."
+                  rows={2}
+                />
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="fullDescription">Полное описание</Label>
+                <Textarea
+                  id="fullDescription"
+                  value={newTool.fullDescription}
+                  onChange={(e) => setNewTool({ ...newTool, fullDescription: e.target.value })}
                   placeholder="Подробное описание инструмента..."
                   rows={3}
                 />
               </div>
-              <div className="col-span-2 space-y-2">
+              <div className="space-y-2">
+                <Label htmlFor="totalStock">Общее количество</Label>
+                <Input
+                  id="totalStock"
+                  type="number"
+                  value={newTool.totalStock}
+                  onChange={(e) => setNewTool({ ...newTool, totalStock: e.target.value })}
+                  placeholder="5"
+                />
+              </div>
+              <div className="space-y-2">
                 <Label htmlFor="features">Особенности (через запятую)</Label>
                 <Input
                   id="features"
@@ -316,8 +329,12 @@ const AdminToolsManagement = () => {
               <Button variant="outline" onClick={() => setIsAddDialogOpen(false)}>
                 Отмена
               </Button>
-              <Button onClick={handleAddTool} className="bg-blue-600 hover:bg-blue-700">
-                Добавить инструмент
+              <Button 
+                onClick={handleAddTool} 
+                className="bg-blue-600 hover:bg-blue-700"
+                disabled={createToolMutation.isPending}
+              >
+                {createToolMutation.isPending ? 'Создание...' : 'Добавить инструмент'}
               </Button>
             </DialogFooter>
           </DialogContent>
@@ -364,6 +381,12 @@ const AdminToolsManagement = () => {
         </CardHeader>
         <CardContent>
           <div className="rounded-md border">
+            {isLoading ? (
+              <div className="p-8 text-center">
+                <Icon name="Loader2" className="h-8 w-8 animate-spin mx-auto mb-4" />
+                <p>Загрузка инструментов...</p>
+              </div>
+            ) : (
             <Table>
               <TableHeader>
                 <TableRow>
@@ -380,11 +403,11 @@ const AdminToolsManagement = () => {
                 {filteredTools.map((tool) => {
                   const stockStatus = getStockStatus(tool.inStock);
                   return (
-                    <TableRow key={tool.id}>
+                    <TableRow key={tool._id}>
                       <TableCell>
                         <div className="flex items-center space-x-3">
                           <img 
-                            src={tool.image} 
+                            src={tool.images[0] || '/img/5e130715-b755-4ab5-82af-c9e448995766.jpg'} 
                             alt={tool.name}
                             className="w-12 h-12 rounded-lg object-cover"
                           />
@@ -413,17 +436,18 @@ const AdminToolsManagement = () => {
                       </TableCell>
                       <TableCell>
                         <div className="text-sm">
-                          <p>Аренд: {tool.totalRented}</p>
-                          <p>Доход: ₽{tool.revenue.toLocaleString()}</p>
+                          <p>Аренд: {tool.totalRentals}</p>
+                          <p>Доход: ₽{tool.totalRevenue.toLocaleString()}</p>
                           <p className="text-gray-600">
-                            {tool.rating > 0 ? `★ ${tool.rating} (${tool.reviews})` : 'Нет отзывов'}
+                            {tool.rating > 0 ? `★ ${tool.rating} (${tool.reviewCount})` : 'Нет отзывов'}
                           </p>
                         </div>
                       </TableCell>
                       <TableCell>
                         <Switch
-                          checked={tool.available}
-                          onCheckedChange={() => toggleAvailability(tool.id)}
+                          checked={tool.status === 'available'}
+                          onCheckedChange={() => toggleAvailability(tool)}
+                          disabled={updateToolMutation.isPending}
                         />
                       </TableCell>
                       <TableCell>
@@ -451,10 +475,11 @@ const AdminToolsManagement = () => {
                               <AlertDialogFooter>
                                 <AlertDialogCancel>Отмена</AlertDialogCancel>
                                 <AlertDialogAction
-                                  onClick={() => handleDeleteTool(tool.id)}
+                                  onClick={() => handleDeleteTool(tool._id)}
                                   className="bg-red-600 hover:bg-red-700"
+                                  disabled={deleteToolMutation.isPending}
                                 >
-                                  Удалить
+                                  {deleteToolMutation.isPending ? 'Удаление...' : 'Удалить'}
                                 </AlertDialogAction>
                               </AlertDialogFooter>
                             </AlertDialogContent>
@@ -466,6 +491,7 @@ const AdminToolsManagement = () => {
                 })}
               </TableBody>
             </Table>
+            )}
           </div>
         </CardContent>
       </Card>
@@ -499,28 +525,49 @@ const AdminToolsManagement = () => {
                 />
               </div>
               <div className="space-y-2">
-                <Label htmlFor="edit-stock">Количество на складе</Label>
+                <Label htmlFor="edit-description">Описание</Label>
+                <Textarea
+                  id="edit-description"
+                  value={editingTool.description}
+                  onChange={(e) => setEditingTool({ ...editingTool, description: e.target.value })}
+                  rows={2}
+                />
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="edit-inStock">Количество на складе</Label>
                 <Input
-                  id="edit-stock"
+                  id="edit-inStock"
                   type="number"
                   value={editingTool.inStock}
                   onChange={(e) => setEditingTool({ ...editingTool, inStock: Number(e.target.value) })}
                 />
               </div>
               <div className="space-y-2">
-                <Label htmlFor="edit-power">Мощность</Label>
+                <Label htmlFor="edit-totalStock">Общее количество</Label>
                 <Input
-                  id="edit-power"
-                  value={editingTool.power}
-                  onChange={(e) => setEditingTool({ ...editingTool, power: e.target.value })}
+                  id="edit-totalStock"
+                  type="number"
+                  value={editingTool.totalStock}
+                  onChange={(e) => setEditingTool({ ...editingTool, totalStock: Number(e.target.value) })}
+                />
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="edit-features">Особенности (через запятую)</Label>
+                <Input
+                  id="edit-features"
+                  value={editingTool.features.join(', ')}
+                  onChange={(e) => setEditingTool({ 
+                    ...editingTool, 
+                    features: e.target.value.split(',').map(f => f.trim()) 
+                  })}
                 />
               </div>
               <div className="col-span-2 space-y-2">
-                <Label htmlFor="edit-description">Описание</Label>
+                <Label htmlFor="edit-fullDescription">Полное описание</Label>
                 <Textarea
-                  id="edit-description"
-                  value={editingTool.description}
-                  onChange={(e) => setEditingTool({ ...editingTool, description: e.target.value })}
+                  id="edit-fullDescription"
+                  value={editingTool.fullDescription}
+                  onChange={(e) => setEditingTool({ ...editingTool, fullDescription: e.target.value })}
                   rows={3}
                 />
               </div>
@@ -530,8 +577,12 @@ const AdminToolsManagement = () => {
             <Button variant="outline" onClick={() => setIsEditDialogOpen(false)}>
               Отмена
             </Button>
-            <Button onClick={handleUpdateTool} className="bg-blue-600 hover:bg-blue-700">
-              Сохранить изменения
+            <Button 
+              onClick={handleUpdateTool} 
+              className="bg-blue-600 hover:bg-blue-700"
+              disabled={updateToolMutation.isPending}
+            >
+              {updateToolMutation.isPending ? 'Сохранение...' : 'Сохранить изменения'}
             </Button>
           </DialogFooter>
         </DialogContent>

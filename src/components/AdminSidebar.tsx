@@ -47,6 +47,16 @@ const menuItems = [
     id: "orders"
   },
   {
+    title: "Бронирования",
+    icon: "Calendar",
+    id: "bookings"
+  },
+  {
+    title: "Отзывы",
+    icon: "MessageSquare",
+    id: "reviews"
+  },
+  {
     title: "Аналитика",
     icon: "TrendingUp",
     id: "analytics"

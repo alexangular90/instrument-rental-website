@@ -1,4 +1,7 @@
 import React, { useState } from 'react';
+import { useMutation } from '@tanstack/react-query';
+import { apiClient } from '@/lib/api';
+import { toast } from '@/hooks/use-toast';
 import { useCart } from '@/contexts/CartContext';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -39,15 +42,66 @@ const Checkout = () => {
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    setIsSubmitting(true);
 
-    // Имитация отправки заказа
-    setTimeout(() => {
-      const orderId = Math.random().toString(36).substr(2, 9).toUpperCase();
-      clearCart();
-      navigate(`/profile/orders/${orderId}`);
-    }, 2000);
+    if (!formData.firstName || !formData.lastName || !formData.email || !formData.phone || !formData.address || !formData.deliveryDate) {
+      toast({
+        title: 'Ошибка',
+        description: 'Пожалуйста, заполните все обязательные поля',
+        variant: 'destructive'
+      });
+      return;
+    }
+
+    const orderData = {
+      items: items.map(item => ({
+        toolId: item.id,
+        quantity: item.quantity,
+        days: item.duration
+      })),
+      startDate: formData.deliveryDate,
+      endDate: new Date(new Date(formData.deliveryDate).getTime() + items[0].duration * 24 * 60 * 60 * 1000).toISOString().split('T')[0],
+      customerInfo: {
+        firstName: formData.firstName,
+        lastName: formData.lastName,
+        email: formData.email,
+        phone: formData.phone,
+        company: formData.company
+      },
+      deliveryInfo: {
+        address: `${formData.address}, ${formData.city}`,
+        date: formData.deliveryDate,
+        timeSlot: formData.deliveryTime,
+        instructions: formData.comments
+      },
+      paymentMethod: formData.paymentMethod,
+      notes: formData.comments
+    };
+
+    createOrderMutation.mutate(orderData);
   };
+
+  const createOrderMutation = useMutation({
+    mutationFn: (orderData: any) => apiClient.createOrder(orderData),
+    onSuccess: (response) => {
+      if (response.success && response.data) {
+        clearCart();
+        toast({
+          title: 'Заказ создан!',
+          description: `Заказ ${response.data.orderNumber} успешно оформлен`,
+        });
+        navigate(`/profile/orders/${response.data._id}`);
+      }
+    },
+    onError: (error: any) => {
+      toast({
+        title: 'Ошибка',
+        description: error.message || 'Не удалось создать заказ',
+        variant: 'destructive'
+      });
+    },
+  });
+
+  const isSubmitting = createOrderMutation.isPending;
 
   if (items.length === 0) {
     return (

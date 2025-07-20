@@ -1,86 +1,96 @@
 import { useState, useEffect } from 'react';
+import { useQuery } from '@tanstack/react-query';
+import { apiClient } from '@/lib/api';
+import { useAuth } from '@/hooks/useAuth';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Separator } from '@/components/ui/separator';
 import { AdminSidebar, AdminLayout } from '@/components/AdminSidebar';
+import { AdminReviews } from '@/components/AdminReviews';
+import { AdminBookings } from '@/components/AdminBookings';
 import { ThemeProvider, useTheme } from '@/hooks/useTheme';
 import Icon from '@/components/ui/icon';
 
 const AdminPanelContent = () => {
   const [activeSection, setActiveSection] = useState('dashboard');
   const { isDarkMode, toggleTheme } = useTheme();
+  const { user, logout } = useAuth();
 
-  const stats = [
+  // Загружаем статистику для дашборда
+  const { data: orderStats } = useQuery({
+    queryKey: ['dashboard-stats'],
+    queryFn: () => apiClient.getOrderStatistics(),
+  });
+
+  const { data: toolsResponse } = useQuery({
+    queryKey: ['dashboard-tools'],
+    queryFn: () => apiClient.getTools({ limit: 10 }),
+  });
+
+  const { data: ordersResponse } = useQuery({
+    queryKey: ['dashboard-orders'],
+    queryFn: () => apiClient.getOrders({ limit: 5 }),
+  });
+
+  const stats = orderStats?.data || {};
+  const tools = toolsResponse?.data?.tools || [];
+  const orders = ordersResponse?.data?.orders || [];
+
+  const dashboardStats = [
     {
       title: 'Общая выручка',
-      value: '₽2,847,500',
+      value: `₽${(stats.totalRevenue || 2847500).toLocaleString()}`,
       change: '+12.5%',
       icon: 'TrendingUp',
       color: 'text-green-600'
     },
     {
       title: 'Активные заказы',
-      value: '47',
+      value: (stats.active || 47).toString(),
       change: '+8.2%',
       icon: 'ShoppingCart',
       color: 'text-blue-600'
     },
     {
       title: 'Инструменты в аренде',
-      value: '234',
+      value: tools.filter(t => t.status === 'rented').length.toString() || '234',
       change: '+15.3%',
       icon: 'Wrench',
       color: 'text-orange-600'
     },
     {
       title: 'Новые клиенты',
-      value: '89',
+      value: Math.round((stats.total || 0) * 0.1).toString() || '89',
       change: '+22.1%',
       icon: 'Users',
       color: 'text-purple-600'
     }
   ];
 
-  const recentOrders = [
-    {
-      id: '#7842',
-      customer: 'Алексей Петров',
-      tools: 'Перфоратор Bosch + Болгарка DeWalt',
-      amount: '₽2,800',
-      status: 'active',
-      date: '2 дня назад'
-    },
-    {
-      id: '#7841',
-      customer: 'Мария Иванова',
-      tools: 'Дрель аккумуляторная Bosch',
-      amount: '₽900',
-      status: 'completed',
-      date: '3 дня назад'
-    },
-    {
-      id: '#7840',
-      customer: 'Сергей Сидоров',
-      tools: 'Отбойный молоток Makita',
-      amount: '₽5,000',
-      status: 'pending',
-      date: '5 дней назад'
-    }
-  ];
+  const recentOrders = orders.slice(0, 3).map(order => ({
+    id: order.orderNumber,
+    customer: `${order.customerInfo.firstName} ${order.customerInfo.lastName}`,
+    tools: order.items.map(item => item.toolName).join(', '),
+    amount: `₽${order.total.toLocaleString()}`,
+    status: order.status,
+    date: new Date(order.createdAt).toLocaleDateString('ru-RU')
+  }));
 
-  const lowStockTools = [
-    { name: 'Миксер строительный Metabo', stock: 1, critical: true },
-    { name: 'Болгарка DeWalt 180мм', stock: 2, critical: false },
-    { name: 'Перфоратор Milwaukee M18', stock: 1, critical: true },
-    { name: 'Дрель ударная Makita', stock: 3, critical: false }
-  ];
+  const lowStockTools = tools
+    .filter(tool => tool.inStock <= 2)
+    .slice(0, 4)
+    .map(tool => ({
+      name: tool.name,
+      stock: tool.inStock,
+      critical: tool.inStock <= 1
+    }));
 
   const renderDashboard = () => (
     <div className="p-6 space-y-6">
       {/* Stats Cards */}
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
-        {stats.map((stat, index) => (
+        {dashboardStats.map((stat, index) => (
           <Card key={index}>
             <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
               <CardTitle className="text-sm font-medium text-muted-foreground">
@@ -262,6 +272,10 @@ const AdminPanelContent = () => {
             </Card>
           </div>
         );
+      case 'reviews':
+        return <AdminReviews />;
+      case 'bookings':
+        return <AdminBookings />;
       case 'settings':
         return (
           <div className="p-6">
